@@ -135,9 +135,22 @@ def fmt_change_offer(co, index=None):
     return "\n".join(lines)
 
 
+def _load_traveler_map():
+    """Build {name: profile} from the backend, falling back to local JSON."""
+    try:
+        import profile_api
+        if profile_api.is_configured():
+            return {t["name"]: t for t in profile_api.list_travelers()}
+    except Exception:
+        pass
+    from passenger_profiles import load_passengers
+    return {p["name"]: p for p in load_passengers()}
+
+
 def resolve_passengers(passengers_str):
     """Resolve passenger string to list of dicts.
-    Accepts JSON array or comma-separated profile names.
+    Accepts JSON array or comma-separated traveler profile names.
+    Names resolve from the backend traveler store (falls back to local JSON).
     Returns (list, None) on success or (None, error_str) on failure.
     """
     try:
@@ -145,22 +158,20 @@ def resolve_passengers(passengers_str):
     except (json.JSONDecodeError, ValueError):
         pass
 
-    from passenger_profiles import load_passengers
-    profiles = load_passengers()
-    profile_map = {p["name"]: p for p in profiles}
+    profile_map = _load_traveler_map()
     names = [n.strip().lower() for n in passengers_str.split(",")]
     pax = []
     for name in names:
         if name not in profile_map:
-            return None, f"Unknown profile '{name}'. Use list_passengers."
+            return None, f"Unknown traveler '{name}'. Use list_travelers."
         p = profile_map[name]
         pax.append({
             "given_name": p["given_name"],
             "family_name": p["family_name"],
-            "born_on": p["born_on"],
-            "gender": p["gender"],
-            "title": p["title"],
-            "email": p["email"],
-            "phone_number": p["phone_number"],
+            "born_on": p.get("born_on"),
+            "gender": p.get("gender"),
+            "title": p.get("title"),
+            "email": p.get("email"),
+            "phone_number": p.get("phone_number"),
         })
     return pax, None

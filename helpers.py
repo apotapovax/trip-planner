@@ -25,6 +25,13 @@ from fli.models import (
 
 from search_utils import fmt_price
 
+# fli 0.9.0 dropped SortBy.NONE; TOP_FLIGHTS is the new "no explicit sort" default.
+_DEFAULT_SORT = (
+    getattr(SortBy, "NONE", None)
+    or getattr(SortBy, "TOP_FLIGHTS", None)
+    or getattr(SortBy, "BEST")
+)
+
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 TRACKED_FILE = os.path.join(DATA_DIR, "tracked.json")
 
@@ -124,7 +131,7 @@ def build_filters(
         price_limit=price_limit,
         max_duration=max_duration,
         layover_restrictions=layover,
-        sort_by=parse_sort_by(sort_by) if sort_by else SortBy.NONE,
+        sort_by=parse_sort_by(sort_by) if sort_by else _DEFAULT_SORT,
     )
 
 

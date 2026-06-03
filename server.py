@@ -18,8 +18,12 @@ from fli.core import (
     resolve_airport,
 )
 from fli.core.parsers import ParseError
-from fli.mcp.server import FliMCP
 from fli.models import DateSearchFilters, PassengerInfo, PriceLimit
+
+try:  # fli >= 0.8.5 dropped the FliMCP base class; use FastMCP directly.
+    from fli.mcp.server import FliMCP as _MCP
+except ImportError:
+    from fastmcp import FastMCP as _MCP
 
 from helpers import (
     build_filters,
@@ -31,7 +35,7 @@ from helpers import (
 from search_utils import fmt_price, search_with_currency
 from tracking import register_tracking_tools
 
-mcp = FliMCP("flightclaw")
+mcp = _MCP("flightclaw")
 
 BOOKING_BASE_URL = "https://www.google.com/travel/flights/booking?tfs="
 
@@ -289,9 +293,29 @@ if duffel_configured():
     from duffel_tools import register_duffel_tools
     register_duffel_tools(mcp)
 
+    from duffel_link import register_duffel_link_tools
+    register_duffel_link_tools(mcp)
 
-from passenger_profiles import register_passenger_tools
-register_passenger_tools(mcp)
+
+# Personalization layer (backend-backed): travelers, preferences, cards/points,
+# companion groups, trip history + learning loop, and preference-aware recommendation.
+from traveler_tools import register_traveler_tools
+register_traveler_tools(mcp)
+
+from preferences_tools import register_preferences_tools
+register_preferences_tools(mcp)
+
+from cards_tools import register_cards_tools
+register_cards_tools(mcp)
+
+from group_tools import register_group_tools
+register_group_tools(mcp)
+
+from trip_tools import register_trip_tools
+register_trip_tools(mcp)
+
+from recommend import register_recommend_tools
+register_recommend_tools(mcp)
 
 
 if __name__ == "__main__":

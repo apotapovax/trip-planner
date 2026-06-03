@@ -1,104 +1,122 @@
 ---
 name: flightclaw
-description: Track flight prices using Google Flights data. Search flights, find cheapest dates, filter by airline/time/duration/price, track routes over time, and get alerts when prices drop. Also runs as an MCP server. Requires Python 3.10+ and the 'flights' and 'mcp' pip packages. Run setup.sh to install dependencies.
+description: Personal travel-booking agent. Onboard a traveler once (who you are, companions, loyalty programs, credit cards, travel preferences), then chat about where you want to go and get a few preference-ranked flight options, fully book and pay for them, and follow up after the trip to learn how you like to travel. Also searches and price-tracks flights via Google Flights. Runs as an MCP server (Python 3.10+, fli + mcp). Profiles live server-side in the private flightclaw-api Worker (D1).
 ---
 
 # flightclaw
 
-Track flight prices from Google Flights. Search routes, monitor prices over time, and get alerts when prices drop.
+FlightClaw is a personal travel-booking agent. It remembers who you are, who you
+travel with, the loyalty programs and cards you hold, and how you like to fly —
+then recommends, books, pays for, and learns from each trip.
 
-## Install
+Personalization data (travelers, preferences, cards/points, companion groups,
+trip history) is stored **server-side** in the private `flightclaw-api` Worker
+(D1), reached via `FLIGHTCLAW_API_URL` + `FLIGHTCLAW_API_KEY`. Payment for
+bookings routes through **Link virtual cards** (`duffel_book_with_link`).
 
-```bash
-npx skills add jackculpan/flightclaw
-```
+## The flow
 
-Or manually:
+### 1. Onboarding (one time)
+Set this up once, then reuse forever.
 
-```bash
-bash skills/flightclaw/setup.sh
-```
+1. **Who you are** — `save_traveler` for yourself (full passport-accurate name,
+   DOB, contact, loyalty programmes), then `set_me` to mark that profile as you
+   and record home airports.
+2. **Companions** — `save_traveler` for each person you travel with
+   (`relationship`: spouse/partner/child/parent/friend/colleague). Group them
+   with `save_group` (e.g. `family` = `jack,jane`).
+3. **Preferences** — `set_preferences`: cabin by haul (e.g. short-haul ECONOMY,
+   long-haul BUSINESS), preferred/avoided airlines, alliance, seat, departure
+   window, max stops, red-eye tolerance, baggage, meal, and budget sensitivity
+   (`cheapest` / `balanced` / `comfort`).
+4. **Cards & points** — `save_card` for each card; `set_points_balance` for each
+   loyalty/transfer program. Then enrich with the **Card Links** MCP
+   (`find_transfer_programs_for_airline`, `list_transfer_partners`) so you know
+   which airlines each card's points can reach.
 
-## Scripts
+### 2. Planning a trip
+1. Ask where they want to go and **who's coming** — reuse a group with
+   `get_group` (it returns the exact `passengers` string for booking) or make a
+   new one with `save_group`.
+2. **Recommend** — `recommend_flights(origin, destination, date, ...)`. It loads
+   the saved preferences, picks the cabin by haul, drops avoided airlines, and
+   ranks options on price/duration/stops/preferred-airline/departure-window/
+   red-eye, returning the top 3 with a "why this fits you" for each.
+3. **Awards / points option** — if they want to spend points, call the **Award
+   Travel Finder** MCP (`search_availability`, `search_all_airlines`,
+   `get_pricing`) using their stored loyalty programs and points balances, and
+   present award options alongside the cash fares ("best overall / cheapest /
+   best points value").
 
-### Search Flights
-Find flights for a specific route and date. Supports multiple airports and date ranges.
+### 3. Booking & paying
+1. Get a bookable, payable offer with `duffel_search_flights` (real fares/
+   conditions). `duffel_get_offer` / `duffel_get_seat_map` for extras.
+2. Confirm the choice with the user, then **`duffel_book_with_link`** with the
+   group's `passengers` string. This creates a Link spend request (the user
+   approves the charge, ≤ $500), returns a virtual card + Duffel checkout URL,
+   and you complete payment via Chrome automation. For higher amounts use
+   `duffel_book_flight` (Duffel balance) or `duffel_create_checkout`.
+3. **`log_trip`** right after booking (route, dates, travelers, cabin, price,
+   `order_id`) so it enters history and the follow-up queue.
 
-```bash
-python skills/flightclaw/scripts/search-flights.py LHR JFK 2025-07-01
-python skills/flightclaw/scripts/search-flights.py LHR JFK 2025-07-01 --cabin BUSINESS
-python skills/flightclaw/scripts/search-flights.py LHR JFK 2025-07-01 --return-date 2025-07-08
-python skills/flightclaw/scripts/search-flights.py LHR JFK 2025-07-01 --stops NON_STOP --results 10
-# Multiple airports (searches all combinations)
-python skills/flightclaw/scripts/search-flights.py LHR,MAN JFK,EWR 2025-07-01
-# Date range (searches each day)
-python skills/flightclaw/scripts/search-flights.py LHR JFK 2025-07-01 --date-to 2025-07-05
-# Both
-python skills/flightclaw/scripts/search-flights.py LHR,MAN JFK,EWR 2025-07-01 --date-to 2025-07-03
-```
+### 4. Post-trip follow-up & learning (the real magic)
+1. `trips_pending_followup` surfaces trips that have completed/returned.
+2. Ask how each went, then `record_trip_feedback(id, feedback, learnings=...)`.
+   Durable lessons (e.g. "prefers window on long-haul", "dislikes early
+   departures") are appended to the user's preferences, so the **next**
+   `recommend_flights` is sharper. Over time FlightClaw learns the traveler.
 
-Arguments:
-- `origin` - IATA airport code(s), comma-separated (e.g. LHR or LHR,MAN)
-- `destination` - IATA airport code(s), comma-separated (e.g. JFK or JFK,EWR)
-- `date` - Departure date (YYYY-MM-DD)
-- `--date-to` - End of date range (YYYY-MM-DD). Searches each day from date to date-to inclusive.
-- `--return-date` - Return date for round trips (YYYY-MM-DD)
-- `--cabin` - ECONOMY (default), PREMIUM_ECONOMY, BUSINESS, FIRST
-- `--stops` - ANY (default), NON_STOP, ONE_STOP, TWO_STOPS
-- `--results` - Number of results (default: 5)
+## Tools
 
-### Track a Flight
-Add a route to the price tracking list and record the current price. Supports multiple airports and date ranges (creates a separate tracking entry for each combination).
+**Personalization (backend-backed)**
+- Travelers: `save_traveler`, `list_travelers`, `get_traveler`, `delete_traveler`,
+  `set_me`, `get_me`, `import_local_passengers` (one-time migration of any old
+  local `data/passengers.json`).
+- Preferences: `set_preferences`, `get_preferences`, `update_preferences`.
+- Cards/points: `save_card`, `list_cards`, `delete_card`, `set_points_balance`,
+  `list_points`.
+- Groups: `save_group`, `list_groups`, `get_group`, `delete_group`.
+- Trips: `log_trip`, `list_trips`, `get_trip`, `trips_pending_followup`,
+  `record_trip_feedback`.
+- Recommendation: `recommend_flights`.
 
-```bash
-python skills/flightclaw/scripts/track-flight.py LHR JFK 2025-07-01
-python skills/flightclaw/scripts/track-flight.py LHR JFK 2025-07-01 --target-price 400
-python skills/flightclaw/scripts/track-flight.py LHR JFK 2025-07-01 --return-date 2025-07-08 --cabin BUSINESS
-# Track multiple airports and dates
-python skills/flightclaw/scripts/track-flight.py LHR,MAN JFK,EWR 2025-07-01 --date-to 2025-07-03 --target-price 400
-```
+**Search & tracking** — `search_flights`, `search_dates`, `track_flight`,
+`check_prices`, `list_tracked`, `remove_tracked`.
 
-Arguments:
-- Same as search-flights, plus:
-- `--target-price` - Alert when price drops below this amount
+**Booking (Duffel)** — `duffel_search_flights`, `duffel_search_multi_city`,
+`duffel_get_offer`, `duffel_get_seat_map`, `duffel_book_flight`,
+`duffel_book_with_link`, `duffel_create_checkout`, `duffel_list_orders`,
+`duffel_get_order`, `duffel_request_change`, `duffel_confirm_change`,
+`duffel_cancel_order`, `duffel_confirm_cancel`, `duffel_check_alerts`,
+`link_list_payment_methods`.
 
-### Check Prices
-Check all tracked flights for price changes. Designed to run on a schedule (cron).
+## External MCP integration
 
-```bash
-python skills/flightclaw/scripts/check-prices.py
-python skills/flightclaw/scripts/check-prices.py --threshold 5
-```
+FlightClaw stores the user's cards/points; the agent enriches and acts on them
+using two other MCP servers when present:
+- **Card Links** — transfer partners and card comparisons for the user's stored
+  cards.
+- **Award Travel Finder** — award availability and points pricing across
+  airlines/programs.
 
-Arguments:
-- `--threshold` - Percentage drop to trigger alert (default: 10)
+When surfacing card recommendations from Card Links, always include its
+disclaimers: not financial advice; affiliate links may earn commission; card
+terms change — verify current offers with the issuer.
 
-Output: Reports price changes for tracked flights. Highlights drops and alerts when target prices are reached.
-
-### List Tracked Flights
-Show all flights being tracked with current vs original prices.
-
-```bash
-python skills/flightclaw/scripts/list-tracked.py
-```
-
-## MCP Server
-
-FlightClaw also runs as an MCP server with extended search capabilities:
+## Setup
 
 ```bash
 pip install flights "mcp[cli]"
-claude mcp add flightclaw -- python3 server.py
+export FLIGHTCLAW_API_URL="https://flightclaw-api.<your>.workers.dev"
+export FLIGHTCLAW_API_KEY="<your API key>"
+claude mcp add flightclaw -- python3 /path/to/flightclaw/server.py
 ```
 
-MCP tools: `search_flights`, `search_dates`, `track_flight`, `check_prices`, `list_tracked`, `remove_tracked`
-
-Additional MCP filters: passengers (adults/children/infants), airline filter, price limit, max flight duration, departure/arrival time restrictions, layover duration, sort order, and cheapest-date calendar search.
-
-## Currency
-
-Prices are returned in the user's local currency based on their IP location. The currency is auto-detected from the Google Flights API response and displayed with the correct symbol (e.g. $, £, ฿, €). Tracked flights store the currency code in `tracked.json`.
+The Worker (`flightclaw-api`) holds the Duffel token and D1 profile store; apply
+`schema.sql` once with `wrangler d1 execute flightclaw-db --remote --file schema.sql`.
 
 ## Data
 
-Price history is stored in `skills/flightclaw/data/tracked.json` and persists via R2 backup.
+Personalization data is server-side (D1). Price-tracking history
+(`data/tracked.json`) and a local Duffel order cache (`data/duffel_orders.json`)
+remain local and are gitignored.
