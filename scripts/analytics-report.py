@@ -9,9 +9,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from radar.config import load_config
-from radar.metrics import format_metrics_report, print_storage_projection
+from radar.metrics import ScanMetrics, format_metrics_report, print_storage_projection
 from radar.store import PriceStore
-from radar.metrics import ScanMetrics, MetricsTracker
 
 
 def main():
