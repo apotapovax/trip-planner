@@ -1,10 +1,15 @@
 #!/bin/bash
 set -e
 
-echo "Installing flightclaw dependencies..."
-# Pin fli to a released version for reproducible installs. flights 0.9.0 provides
-# the date-search / emissions / bags / basic-economy APIs this server imports.
-# fastmcp backs the FastMCP fallback in server.py (fli dropped the FliMCP base class).
-pip install "flights==0.9.0" "mcp[cli]" fastmcp
-mkdir -p "$(dirname "$0")/data"
-echo "Done. flightclaw is ready to use."
+cd "$(dirname "$0")"
+
+echo "Installing trip-planner radar dependencies..."
+pip install -r requirements.txt
+mkdir -p data
+echo ""
+echo "Done. Quick start:"
+echo "  python scripts/scan-radar.py --groups us_leisure --dry-run"
+echo "  python scripts/analytics-report.py"
+echo ""
+echo "Optional email alerts — set env vars:"
+echo "  SMTP_HOST SMTP_USER SMTP_PASS ALERT_EMAIL_TO"

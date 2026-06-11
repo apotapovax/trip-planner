@@ -3,3 +3,9 @@ __pycache__/
 *.pyc
 .flightclaw_api_key
 .dev.vars
+*.db
+*.db-wal
+*.db-shm
+.venv/
+venv/
+.env

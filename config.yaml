@@ -1,0 +1,77 @@
+# Trip Planner Radar — personal flight price analytics (FlightClaw fork)
+# Default origin: RDU. Comfort filters reject brutal schedules (late night, red-eye).
+
+defaults:
+  origin: RDU
+  cabin: ECONOMY
+  stops: NON_STOP
+  exclude_basic_economy: true
+  trip_duration_days: 7  # for date-range discovery scans
+
+comfort:
+  # Reject departures outside this window (local airport time, 24h HH:MM)
+  depart_after: "06:30"
+  depart_before: "20:30"
+  return_depart_after: "07:00"
+  return_depart_before: "20:00"
+  # Reject arrivals after midnight that force a hotel night before transit
+  latest_arrival: "23:30"
+  # Minimum connection/layover sanity (minutes)
+  min_layover_minutes: 45
+  max_layover_minutes: 180
+  # Score threshold 0–1; flights below are logged but not alerted
+  min_comfort_score: 0.6
+
+scanner:
+  # discovery: scan cheapest dates in rolling window (1x/day recommended)
+  # watch: re-check specific routes (hourly)
+  discovery_days_ahead: 90
+  discovery_interval_hours: 24
+  watch_interval_minutes: 60
+  hot_interval_minutes: 10
+  max_api_results_per_route: 15
+
+alerts:
+  enabled: true
+  # SMTP — set env vars SMTP_HOST, SMTP_USER, SMTP_PASS, ALERT_EMAIL_TO
+  instant_max_per_day: 3
+  cooldown_hours: 24
+  min_drop_usd: 75
+  min_drop_pct: 8
+  percentile_threshold: 15  # alert if price in bottom 15% of history
+  digest_hour_local: 7
+  digest_timezone: America/New_York
+
+storage:
+  sqlite_path: data/radar.db
+  retain_days: 400  # ~13 months of history
+  vacuum_interval_days: 30
+
+# Route groups — scanner expands origin × destination × date windows
+route_groups:
+  us_leisure:
+    description: Cheap US getaways from RDU (nonstop preferred)
+    origins: [RDU]
+    destinations: [ORD, MDW, SEA, SLC, LAS, LAX, SFO, OAK, SAN, DEN, MIA, BOS]
+    stops: ONE_STOP  # allow 1-stop for cities without RDU nonstop
+    trip_duration_days: 3
+
+  europe_nonstop:
+    description: RDU nonstop Europe — real prices for long-term analytics
+    origins: [RDU]
+    destinations: [LHR, CDG, FRA, KEF, DUB]
+    stops: NON_STOP
+
+  asia_pacific:
+    description: Asia-Pacific via nearby hubs (nonstop from CLT/IAD/ATL)
+    origins: [RDU, CLT, IAD, ATL]
+    destinations: [NRT, HND, ICN, SYD, MEL, AKL]
+    stops: NON_STOP
+
+  watchlist:
+    description: High-priority routes checked every watch interval
+    origins: [RDU]
+    destinations: [LHR, SFO, ORD, LAS]
+    stops: ANY
+    # Optional fixed dates (YYYY-MM-DD); empty = rolling discovery only
+    dates: []

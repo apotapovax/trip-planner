@@ -1,0 +1,5 @@
+flights==0.9.0
+mcp[cli]
+fastmcp
+pyyaml>=6.0
+psutil>=5.9
